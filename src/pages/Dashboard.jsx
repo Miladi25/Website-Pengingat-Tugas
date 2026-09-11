@@ -4,14 +4,19 @@ import { supabase } from '../lib/supabase'
 
 function Dashboard() {
   const [tasks, setTasks] = useState([])
+  const [userName, setUserName] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchTasks()
+    fetchDashboardData()
   }, [])
 
-  const fetchTasks = async () => {
+  // =========================================================
+  // AMBIL DATA USER + TUGAS
+  // =========================================================
+
+  const fetchDashboardData = async () => {
     setLoading(true)
     setError('')
 
@@ -25,23 +30,61 @@ function Dashboard() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('tasks')
-      .select(`
-        *,
-        categories (
-          id,
-          name
-        )
-      `)
-      .eq('created_by', user.id)
-      .order('created_at', {
-        ascending: false,
-      })
+    // -------------------------------------------------------
+    // Ambil profil pengguna
+    // -------------------------------------------------------
 
-    if (error) {
-      console.error('Gagal mengambil tugas:', error)
-      setError(`Gagal mengambil data tugas: ${error.message}`)
+    const { data: profile, error: profileError } =
+      await supabase
+        .from('profiles')
+        .select('display_name, username')
+        .eq('id', user.id)
+        .single()
+
+    if (profileError) {
+      console.error(
+        'Gagal mengambil profil pengguna:',
+        profileError
+      )
+    }
+
+    const name =
+      profile?.display_name ||
+      profile?.username ||
+      user.email?.split('@')[0] ||
+      'Pengguna'
+
+    setUserName(name)
+
+    // -------------------------------------------------------
+    // Ambil tugas
+    // -------------------------------------------------------
+
+    const { data, error: taskError } =
+      await supabase
+        .from('tasks')
+        .select(`
+          *,
+          categories (
+            id,
+            name
+          )
+        `)
+        .eq('created_by', user.id)
+        .order('created_at', {
+          ascending: false,
+        })
+
+    if (taskError) {
+      console.error(
+        'Gagal mengambil tugas:',
+        taskError
+      )
+
+      setError(
+        `Gagal mengambil data tugas: ${taskError.message}`
+      )
+
       setLoading(false)
       return
     }
@@ -98,18 +141,20 @@ function Dashboard() {
       return new Date(task.deadline) < now
     }).length
 
-    // Progress pekerjaan:
-    // berdasarkan tugas yang sudah berstatus completed
+    // Progress pekerjaan
     const completionRate =
       total > 0
-        ? Math.round((completed / total) * 100)
+        ? Math.round(
+            (completed / total) * 100
+          )
         : 0
 
-    // Progress validasi:
-    // berdasarkan tugas completed yang sudah divalidasi
+    // Progress validasi
     const validationRate =
       completed > 0
-        ? Math.round((validated / completed) * 100)
+        ? Math.round(
+            (validated / completed) * 100
+          )
         : 0
 
     return {
@@ -161,7 +206,8 @@ function Dashboard() {
 
     tasks.forEach((task) => {
       const categoryName =
-        task.categories?.name || 'Tanpa kategori'
+        task.categories?.name ||
+        'Tanpa kategori'
 
       if (!result[categoryName]) {
         result[categoryName] = {
@@ -192,14 +238,13 @@ function Dashboard() {
       return '-'
     }
 
-    return new Date(dateString).toLocaleDateString(
-      'id-ID',
-      {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }
-    )
+    return new Date(
+      dateString
+    ).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
   }
 
   const formatDateTime = (dateString) => {
@@ -207,16 +252,15 @@ function Dashboard() {
       return 'Tanpa deadline'
     }
 
-    return new Date(dateString).toLocaleString(
-      'id-ID',
-      {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }
-    )
+    return new Date(
+      dateString
+    ).toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   }
 
   const isOverdue = (task) => {
@@ -343,6 +387,15 @@ function Dashboard() {
               TaskFlow
             </p>
 
+            {/* SAPAAN USER */}
+            <p className="mb-1 text-base font-medium text-slate-400">
+              Selamat datang,{' '}
+              <span className="font-semibold text-violet-400">
+                {userName || 'Pengguna'}
+              </span>{' '}
+              👋
+            </p>
+
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Dashboard
             </h1>
@@ -378,8 +431,11 @@ function Dashboard() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 
           {/* TOTAL */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Total Tugas
               </span>
@@ -387,6 +443,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10 text-lg text-violet-400">
                 📋
               </span>
+
             </div>
 
             <p className="text-3xl font-bold">
@@ -396,11 +453,15 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Semua tugas
             </p>
+
           </div>
 
           {/* TODO */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Belum Dikerjakan
               </span>
@@ -408,6 +469,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-500/10 text-lg">
                 📝
               </span>
+
             </div>
 
             <p className="text-3xl font-bold">
@@ -417,11 +479,15 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Menunggu dikerjakan
             </p>
+
           </div>
 
           {/* IN PROGRESS */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Sedang Dikerjakan
               </span>
@@ -429,6 +495,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-lg text-blue-400">
                 🔄
               </span>
+
             </div>
 
             <p className="text-3xl font-bold">
@@ -438,11 +505,15 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Sedang berjalan
             </p>
+
           </div>
 
           {/* SELESAI */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Selesai
               </span>
@@ -450,6 +521,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-lg text-emerald-400">
                 ✓
               </span>
+
             </div>
 
             <p className="text-3xl font-bold">
@@ -459,11 +531,15 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Menunggu validasi
             </p>
+
           </div>
 
           {/* TERVALIDASI */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Tervalidasi
               </span>
@@ -471,6 +547,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-lg text-cyan-400">
                 ✓✓
               </span>
+
             </div>
 
             <p className="text-3xl font-bold text-cyan-400">
@@ -480,11 +557,15 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Benar-benar selesai
             </p>
+
           </div>
 
           {/* TERLAMBAT */}
+
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
+
             <div className="mb-4 flex items-center justify-between">
+
               <span className="text-sm text-slate-400">
                 Terlambat
               </span>
@@ -492,6 +573,7 @@ function Dashboard() {
               <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-500/10 text-lg text-red-400">
                 ⚠️
               </span>
+
             </div>
 
             <p className="text-3xl font-bold text-red-400">
@@ -501,6 +583,7 @@ function Dashboard() {
             <p className="mt-1 text-xs text-slate-500">
               Melewati deadline
             </p>
+
           </div>
 
         </div>
@@ -514,24 +597,31 @@ function Dashboard() {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
 
             <div>
+
               <p className="text-sm font-semibold text-cyan-400">
                 Status Validasi Tugas
               </p>
 
               <h2 className="mt-1 text-xl font-bold">
-                {statistics.validated} dari {statistics.completed} tugas selesai sudah tervalidasi.
+                {statistics.validated} dari{' '}
+                {statistics.completed} tugas selesai
+                sudah tervalidasi.
               </h2>
 
               <p className="mt-2 text-sm text-slate-400">
+
                 {statistics.waitingValidation > 0
                   ? `${statistics.waitingValidation} tugas masih menunggu validasi.`
                   : statistics.completed > 0
                     ? 'Semua tugas yang selesai sudah tervalidasi.'
                     : 'Belum ada tugas yang berstatus selesai.'}
+
               </p>
+
             </div>
 
             <div className="shrink-0 text-left sm:text-right">
+
               <p className="text-3xl font-bold text-cyan-400">
                 {statistics.validationRate}%
               </p>
@@ -539,22 +629,26 @@ function Dashboard() {
               <p className="text-xs text-slate-500">
                 Progress validasi
               </p>
+
             </div>
 
           </div>
 
           <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-800">
+
             <div
               className="h-full rounded-full bg-cyan-500 transition-all duration-500"
               style={{
                 width: `${statistics.validationRate}%`,
               }}
             />
+
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
 
             <div className="rounded-xl bg-slate-950 p-4">
+
               <p className="text-xs text-slate-500">
                 Selesai
               </p>
@@ -566,9 +660,11 @@ function Dashboard() {
               <p className="mt-1 text-xs text-slate-600">
                 Status pekerjaan selesai
               </p>
+
             </div>
 
             <div className="rounded-xl bg-slate-950 p-4">
+
               <p className="text-xs text-slate-500">
                 Menunggu Validasi
               </p>
@@ -580,9 +676,11 @@ function Dashboard() {
               <p className="mt-1 text-xs text-slate-600">
                 Sudah selesai, belum divalidasi
               </p>
+
             </div>
 
             <div className="rounded-xl bg-slate-950 p-4">
+
               <p className="text-xs text-slate-500">
                 Tervalidasi
               </p>
@@ -594,6 +692,7 @@ function Dashboard() {
               <p className="mt-1 text-xs text-slate-600">
                 Sudah dikonfirmasi
               </p>
+
             </div>
 
           </div>
@@ -613,7 +712,9 @@ function Dashboard() {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
 
             <div className="flex items-start justify-between">
+
               <div>
+
                 <h2 className="font-semibold">
                   Progress Keseluruhan
                 </h2>
@@ -621,25 +722,30 @@ function Dashboard() {
                 <p className="mt-1 text-sm text-slate-500">
                   Persentase tugas yang selesai
                 </p>
+
               </div>
 
               <span className="text-2xl font-bold text-violet-400">
                 {statistics.completionRate}%
               </span>
+
             </div>
 
             <div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-800">
+
               <div
                 className="h-full rounded-full bg-violet-500 transition-all duration-500"
                 style={{
                   width: `${statistics.completionRate}%`,
                 }}
               />
+
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-3">
 
               <div className="rounded-xl bg-slate-950 p-4">
+
                 <p className="text-xs text-slate-500">
                   Selesai
                 </p>
@@ -647,9 +753,11 @@ function Dashboard() {
                 <p className="mt-1 text-xl font-bold text-emerald-400">
                   {statistics.completed}
                 </p>
+
               </div>
 
               <div className="rounded-xl bg-slate-950 p-4">
+
                 <p className="text-xs text-slate-500">
                   Belum selesai
                 </p>
@@ -658,6 +766,7 @@ function Dashboard() {
                   {statistics.total -
                     statistics.completed}
                 </p>
+
               </div>
 
             </div>
@@ -671,6 +780,7 @@ function Dashboard() {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 lg:col-span-2">
 
             <div className="mb-5">
+
               <h2 className="font-semibold">
                 Tugas Berdasarkan Kategori
               </h2>
@@ -678,19 +788,26 @@ function Dashboard() {
               <p className="mt-1 text-sm text-slate-500">
                 Distribusi tugas yang kamu miliki
               </p>
+
             </div>
 
             {categoryStats.length === 0 ? (
+
               <div className="rounded-xl bg-slate-950 p-6 text-center">
+
                 <p className="text-sm text-slate-500">
                   Belum ada data kategori.
                 </p>
+
               </div>
+
             ) : (
+
               <div className="space-y-4">
 
                 {categoryStats.map(
                   (category) => {
+
                     const percentage =
                       category.total > 0
                         ? Math.round(
@@ -704,18 +821,21 @@ function Dashboard() {
                       <div
                         key={category.name}
                       >
+
                         <div className="mb-2 flex items-center justify-between gap-3">
 
                           <div className="min-w-0">
+
                             <p className="truncate text-sm font-medium">
                               {category.name}
                             </p>
 
-                            <p className="text-xs text-slate-500">
+                            <p className="mt-1 text-xs text-slate-500">
                               {category.completed}{' '}
                               selesai dari{' '}
                               {category.total}
                             </p>
+
                           </div>
 
                           <span className="shrink-0 text-sm text-violet-400">
@@ -725,19 +845,23 @@ function Dashboard() {
                         </div>
 
                         <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+
                           <div
                             className="h-full rounded-full bg-violet-500 transition-all duration-500"
                             style={{
                               width: `${percentage}%`,
                             }}
                           />
+
                         </div>
+
                       </div>
                     )
                   }
                 )}
 
               </div>
+
             )}
 
           </div>
@@ -759,6 +883,7 @@ function Dashboard() {
             <div className="flex items-center justify-between border-b border-slate-800 p-5">
 
               <div>
+
                 <h2 className="font-semibold">
                   Deadline Terdekat
                 </h2>
@@ -766,6 +891,7 @@ function Dashboard() {
                 <p className="mt-1 text-xs text-slate-500">
                   Prioritas pekerjaan berikutnya
                 </p>
+
               </div>
 
               <span className="text-lg">
@@ -777,16 +903,22 @@ function Dashboard() {
             <div className="p-5">
 
               {upcomingTasks.length === 0 ? (
+
                 <div className="rounded-xl bg-slate-950 p-6 text-center">
+
                   <p className="text-sm text-slate-500">
-                    Tidak ada deadline mendatang.
+                    Tidak ada deadline terdekat.
                   </p>
+
                 </div>
+
               ) : (
+
                 <div className="space-y-3">
 
                   {upcomingTasks.map(
                     (task) => (
+
                       <div
                         key={task.id}
                         className={`rounded-xl border p-4 ${
@@ -799,6 +931,7 @@ function Dashboard() {
                         <div className="flex items-start justify-between gap-3">
 
                           <div className="min-w-0">
+
                             <p className="truncate text-sm font-medium">
                               {task.title}
                             </p>
@@ -810,6 +943,7 @@ function Dashboard() {
                                   : 'text-slate-500'
                               }`}
                             >
+
                               {isOverdue(task)
                                 ? '⚠️ Terlambat · '
                                 : '🕒 '}
@@ -817,7 +951,9 @@ function Dashboard() {
                               {formatDateTime(
                                 task.deadline
                               )}
+
                             </p>
+
                           </div>
 
                           <span
@@ -833,10 +969,12 @@ function Dashboard() {
                         </div>
 
                       </div>
+
                     )
                   )}
 
                 </div>
+
               )}
 
             </div>
@@ -852,6 +990,7 @@ function Dashboard() {
             <div className="flex items-center justify-between border-b border-slate-800 p-5">
 
               <div>
+
                 <h2 className="font-semibold">
                   Tugas Terbaru
                 </h2>
@@ -859,6 +998,7 @@ function Dashboard() {
                 <p className="mt-1 text-xs text-slate-500">
                   Tugas yang baru dibuat
                 </p>
+
               </div>
 
               <Link
@@ -873,7 +1013,9 @@ function Dashboard() {
             <div className="p-5">
 
               {recentTasks.length === 0 ? (
+
                 <div className="rounded-xl bg-slate-950 p-6 text-center">
+
                   <p className="text-sm text-slate-500">
                     Belum ada tugas.
                   </p>
@@ -884,12 +1026,16 @@ function Dashboard() {
                   >
                     Buat tugas pertama →
                   </Link>
+
                 </div>
+
               ) : (
+
                 <div className="space-y-3">
 
                   {recentTasks.map(
                     (task) => (
+
                       <div
                         key={task.id}
                         className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
@@ -906,9 +1052,11 @@ function Dashboard() {
                             <div className="mt-2 flex flex-wrap items-center gap-2">
 
                               {task.categories?.name && (
+
                                 <span className="rounded-full bg-violet-500/10 px-2 py-1 text-[11px] text-violet-300">
                                   {task.categories.name}
                                 </span>
+
                               )}
 
                               <span
@@ -922,16 +1070,23 @@ function Dashboard() {
                               </span>
 
                               {/* VALIDATION BADGE */}
+
                               {task.status === 'completed' && (
+
                                 task.validated_at ? (
+
                                   <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-300">
                                     ✓ Tervalidasi
                                   </span>
+
                                 ) : (
+
                                   <span className="rounded-full border border-yellow-500/20 bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-300">
                                     Menunggu Validasi
                                   </span>
+
                                 )
+
                               )}
 
                             </div>
@@ -961,10 +1116,12 @@ function Dashboard() {
                         </div>
 
                       </div>
+
                     )
                   )}
 
                 </div>
+
               )}
 
             </div>
@@ -982,6 +1139,7 @@ function Dashboard() {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
 
             <div>
+
               <p className="text-sm font-semibold text-violet-400">
                 Tetap produktif 🚀
               </p>
@@ -994,6 +1152,7 @@ function Dashboard() {
                 Fokus pada tugas dengan deadline terdekat
                 agar pekerjaanmu tetap terorganisir.
               </p>
+
             </div>
 
             <Link
@@ -1008,6 +1167,7 @@ function Dashboard() {
         </div>
 
       </div>
+
     </main>
   )
 }
