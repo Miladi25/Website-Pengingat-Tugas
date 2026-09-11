@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
   BrowserRouter,
-  Routes,
-  Route,
   Navigate,
+  Route,
+  Routes,
 } from 'react-router-dom'
 
 import { supabase } from './lib/supabase'
+
+import Footer from './components/Footer'
 
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -16,115 +18,39 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import AdminDashboard from './pages/AdminDashboard'
 
+
+/* ================================
+   PROTECTED ROUTE
+================================ */
+
 function ProtectedRoute({ children }) {
-  const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState(null)
 
   useEffect(() => {
-    const getSession = async () => {
+    let mounted = true
+
+    const checkSession = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession()
+
+      if (!mounted) return
 
       setSession(session)
       setLoading(false)
     }
 
-    getSession()
+    checkSession()
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event, session) => {
+        if (!mounted) return
+
         setSession(session)
-      }
-    )
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
-        <div className="text-center">
-          <div className="text-4xl mb-4">
-            ✦
-          </div>
-
-          <p className="text-slate-400">
-            Memuat TaskFlow...
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!session) {
-    return (
-      <Navigate
-        to="/login"
-        replace
-      />
-    )
-  }
-
-  return children
-}
-
-function AdminRoute({ children }) {
-  const [session, setSession] = useState(null)
-  const [role, setRole] = useState(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let mounted = true
-
-    const checkAdmin = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session) {
-        if (mounted) {
-          setSession(null)
-          setLoading(false)
-        }
-
-        return
-      }
-
-      const { data: profile, error } =
-        await supabase
-          .from('profiles')
-          .select('role')
-          .eq('id', session.user.id)
-          .single()
-
-      if (!mounted) {
-        return
-      }
-
-      if (error || !profile) {
-        setSession(session)
-        setRole(null)
         setLoading(false)
-        return
-      }
-
-      setSession(session)
-      setRole(profile.role)
-      setLoading(false)
-    }
-
-    checkAdmin()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      () => {
-        checkAdmin()
       }
     )
 
@@ -136,14 +62,12 @@ function AdminRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="text-4xl mb-4">
-            👑
-          </div>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-violet-500/30 border-t-violet-500" />
 
-          <p className="text-slate-400">
-            Memeriksa akses administrator...
+          <p className="text-sm text-slate-400">
+            Memuat TaskFlow...
           </p>
         </div>
       </div>
@@ -151,116 +75,227 @@ function AdminRoute({ children }) {
   }
 
   if (!session) {
-    return (
-      <Navigate
-        to="/login"
-        replace
-      />
-    )
-  }
-
-  if (role !== 'admin') {
-    return (
-      <Navigate
-        to="/dashboard"
-        replace
-      />
-    )
+    return <Navigate to="/login" replace />
   }
 
   return children
 }
 
+
+/* ================================
+   ADMIN ROUTE
+================================ */
+
+function AdminRoute({ children }) {
+  const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    const checkAdmin = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        if (!session) {
+          if (mounted) {
+            setIsAdmin(false)
+            setLoading(false)
+          }
+
+          return
+        }
+
+        const { data: profile, error } =
+          await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .single()
+
+        if (!mounted) return
+
+        if (error) {
+          console.error(
+            'Gagal mengambil role:',
+            error
+          )
+
+          setIsAdmin(false)
+          setLoading(false)
+
+          return
+        }
+
+        setIsAdmin(profile?.role === 'admin')
+        setLoading(false)
+      } catch (error) {
+        console.error(
+          'Gagal memeriksa admin:',
+          error
+        )
+
+        if (mounted) {
+          setIsAdmin(false)
+          setLoading(false)
+        }
+      }
+    }
+
+    checkAdmin()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-violet-500/30 border-t-violet-500" />
+
+          <p className="text-sm text-slate-400">
+            Memeriksa akses...
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return children
+}
+
+
+/* ================================
+   APP
+================================ */
+
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
+      <div className="min-h-screen bg-slate-950 text-white flex flex-col">
 
-        {/* Login */}
-        <Route
-          path="/login"
-          element={<Login />}
-        />
+        {/* ================================
+            CONTENT
+        ================================ */}
 
-        {/* Register */}
-        <Route
-          path="/register"
-          element={<Register />}
-        />
+        <div className="flex-1">
 
-        {/* Root */}
-        <Route
-          path="/"
-          element={
-            <Navigate
-              to="/login"
-              replace
+          <Routes>
+
+            {/* ================================
+                PUBLIC
+            ================================ */}
+
+            <Route
+              path="/"
+              element={
+                <Navigate
+                  to="/login"
+                  replace
+                />
+              }
             />
-          }
-        />
 
-        {/* Dashboard */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Tasks */}
-        <Route
-          path="/tasks"
-          element={
-            <ProtectedRoute>
-              <Tasks />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Projects */}
-        <Route
-          path="/projects"
-          element={
-            <ProtectedRoute>
-              <Projects />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Project Detail */}
-        <Route
-          path="/projects/:id"
-          element={
-            <ProtectedRoute>
-              <ProjectDetail />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Admin */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminDashboard />
-            </AdminRoute>
-          }
-        />
-
-        {/* Unknown route */}
-        <Route
-          path="*"
-          element={
-            <Navigate
-              to="/dashboard"
-              replace
+            <Route
+              path="/login"
+              element={<Login />}
             />
-          }
-        />
 
-      </Routes>
+            <Route
+              path="/register"
+              element={<Register />}
+            />
+
+
+            {/* ================================
+                USER
+            ================================ */}
+
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/tasks"
+              element={
+                <ProtectedRoute>
+                  <Tasks />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/projects"
+              element={
+                <ProtectedRoute>
+                  <Projects />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/projects/:id"
+              element={
+                <ProtectedRoute>
+                  <ProjectDetail />
+                </ProtectedRoute>
+              }
+            />
+
+
+            {/* ================================
+                ADMIN
+            ================================ */}
+
+            <Route
+              path="/admin"
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              }
+            />
+
+
+            {/* ================================
+                404
+            ================================ */}
+
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to="/dashboard"
+                  replace
+                />
+              }
+            />
+
+          </Routes>
+
+        </div>
+
+
+        {/* ================================
+            GLOBAL FOOTER
+        ================================ */}
+
+        <Footer />
+
+      </div>
     </BrowserRouter>
   )
 }
