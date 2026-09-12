@@ -36,6 +36,23 @@ const PRIORITY_OPTIONS = [
   },
 ]
 
+const PRIORITY_ORDER = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  urgent: 4,
+}
+
+const EMPTY_FORM = {
+  title: '',
+  description: '',
+  deadline: '',
+  priority: 'medium',
+  status: 'todo',
+  category_id: '',
+  project_id: '',
+}
+
 function Tasks() {
   const [tasks, setTasks] = useState([])
   const [categories, setCategories] = useState([])
@@ -43,8 +60,6 @@ function Tasks() {
   const [subtasks, setSubtasks] = useState([])
 
   const [loading, setLoading] = useState(true)
-  const [loadingCategories, setLoadingCategories] = useState(true)
-  const [loadingProjects, setLoadingProjects] = useState(true)
   const [loadingSubtasks, setLoadingSubtasks] = useState(true)
 
   const [error, setError] = useState('')
@@ -53,22 +68,37 @@ function Tasks() {
   const [showForm, setShowForm] = useState(false)
   const [editingTask, setEditingTask] = useState(null)
 
+  // =========================================================
+  // SEARCH / FILTER / SORTING
+  // =========================================================
+
+  const [searchQuery, setSearchQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterProject, setFilterProject] = useState('all')
+  const [sortBy, setSortBy] = useState('created_desc')
 
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    deadline: '',
-    priority: 'medium',
-    status: 'todo',
-    category_id: '',
-    project_id: '',
-  })
+  // =========================================================
+  // FORM
+  // =========================================================
+
+  const [form, setForm] = useState(EMPTY_FORM)
+
+  // =========================================================
+  // SUBTASK
+  // =========================================================
 
   const [subtaskInputs, setSubtaskInputs] = useState({})
   const [addingSubtask, setAddingSubtask] = useState(null)
+
+  // =========================================================
+  // VALIDATION
+  // =========================================================
+
   const [validatingTask, setValidatingTask] = useState(null)
+
+  // =========================================================
+  // LOAD DATA
+  // =========================================================
 
   useEffect(() => {
     loadAllData()
@@ -105,7 +135,7 @@ function Tasks() {
   }
 
   // =========================================================
-  // TASKS
+  // FETCH TASKS
   // =========================================================
 
   const fetchTasks = async () => {
@@ -147,29 +177,123 @@ function Tasks() {
   }
 
   // =========================================================
-  // OPEN ADD
+  // FETCH CATEGORIES
+  // =========================================================
+
+  const fetchCategories = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('categories')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .order('name', {
+        ascending: true,
+      })
+
+    if (error) {
+      console.error('Gagal mengambil kategori:', error)
+      setError(`Gagal mengambil kategori: ${error.message}`)
+      return
+    }
+
+    setCategories(data || [])
+  }
+
+  // =========================================================
+  // FETCH PROJECTS
+  // =========================================================
+
+  const fetchProjects = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('projects')
+      .select(`
+        id,
+        name,
+        description
+      `)
+      .eq('created_by', user.id)
+      .order('name', {
+        ascending: true,
+      })
+
+    if (error) {
+      console.error('Gagal mengambil project:', error)
+      setError(`Gagal mengambil project: ${error.message}`)
+      return
+    }
+
+    setProjects(data || [])
+  }
+
+  // =========================================================
+  // FETCH SUBTASKS
+  // =========================================================
+
+  const fetchSubtasks = async () => {
+    setLoadingSubtasks(true)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      setLoadingSubtasks(false)
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('subtasks')
+      .select(`
+        *,
+        tasks!inner (
+          created_by
+        )
+      `)
+      .eq('tasks.created_by', user.id)
+      .order('created_at', {
+        ascending: true,
+      })
+
+    if (error) {
+      console.error('Gagal mengambil subtask:', error)
+      setError(`Gagal mengambil subtask: ${error.message}`)
+      setLoadingSubtasks(false)
+      return
+    }
+
+    setSubtasks(data || [])
+    setLoadingSubtasks(false)
+  }
+
+  // =========================================================
+  // OPEN ADD FORM
   // =========================================================
 
   const handleOpenAddForm = () => {
     setEditingTask(null)
-
-    setForm({
-      title: '',
-      description: '',
-      deadline: '',
-      priority: 'medium',
-      status: 'todo',
-      category_id: '',
-      project_id: '',
-    })
-
+    setForm({ ...EMPTY_FORM })
     setError('')
     setSuccess('')
     setShowForm(true)
   }
 
   // =========================================================
-  // OPEN EDIT
+  // OPEN EDIT FORM
   // =========================================================
 
   const handleOpenEditForm = (task) => {
@@ -199,16 +323,7 @@ function Tasks() {
   const handleCloseForm = () => {
     setShowForm(false)
     setEditingTask(null)
-
-    setForm({
-      title: '',
-      description: '',
-      deadline: '',
-      priority: 'medium',
-      status: 'todo',
-      category_id: '',
-      project_id: '',
-    })
+    setForm({ ...EMPTY_FORM })
   }
 
   // =========================================================
@@ -258,16 +373,14 @@ function Tasks() {
       status: form.status,
       category_id: form.category_id || null,
       project_id: form.project_id || null,
+    }
 
-      // Jika task tidak completed,
-      // validasi harus dikosongkan.
-      ...(form.status !== 'completed'
-        ? {
-            validated_at: null,
-            validated_by: null,
-            completed_at: null,
-          }
-        : {}),
+    // Jika status bukan completed,
+    // reset waktu selesai dan validasi.
+    if (form.status !== 'completed') {
+      taskData.completed_at = null
+      taskData.validated_at = null
+      taskData.validated_by = null
     }
 
     // =======================================================
@@ -381,12 +494,15 @@ function Tasks() {
     }
 
     setTasks((current) =>
-      current.filter((task) => task.id !== taskId)
+      current.filter(
+        (task) => task.id !== taskId
+      )
     )
 
     setSubtasks((current) =>
       current.filter(
-        (subtask) => subtask.task_id !== taskId
+        (subtask) =>
+          subtask.task_id !== taskId
       )
     )
 
@@ -394,36 +510,37 @@ function Tasks() {
   }
 
   // =========================================================
-  // STATUS
+  // CHANGE STATUS
   // =========================================================
 
-  const handleStatusChange = async (task, newStatus) => {
+  const handleStatusChange = async (
+    task,
+    newStatus
+  ) => {
     setError('')
 
     const completedAt =
       newStatus === 'completed'
-        ? (
-            task.completed_at ||
-            new Date().toISOString()
-          )
+        ? task.completed_at ||
+          new Date().toISOString()
         : null
 
     const validationReset =
       newStatus !== 'completed'
 
+    const updateData = {
+      status: newStatus,
+      completed_at: completedAt,
+    }
+
+    if (validationReset) {
+      updateData.validated_at = null
+      updateData.validated_by = null
+    }
+
     const { error } = await supabase
       .from('tasks')
-      .update({
-        status: newStatus,
-        completed_at: completedAt,
-
-        ...(validationReset
-          ? {
-              validated_at: null,
-              validated_by: null,
-            }
-          : {}),
-      })
+      .update(updateData)
       .eq('id', task.id)
       .eq('created_by', task.created_by)
 
@@ -440,7 +557,6 @@ function Tasks() {
               ...item,
               status: newStatus,
               completed_at: completedAt,
-
               ...(validationReset
                 ? {
                     validated_at: null,
@@ -457,12 +573,14 @@ function Tasks() {
         'Status diubah. Validasi tugas di-reset.'
       )
     } else {
-      showMessage('Status tugas berhasil diperbarui.')
+      showMessage(
+        'Status tugas berhasil diperbarui.'
+      )
     }
   }
 
   // =========================================================
-  // VALIDASI TUGAS
+  // VALIDASI TASK
   // =========================================================
 
   const handleValidateTask = async (task) => {
@@ -527,9 +645,7 @@ function Tasks() {
 
     setValidatingTask(null)
 
-    showMessage(
-      '✅ Tugas berhasil divalidasi!'
-    )
+    showMessage('✅ Tugas berhasil divalidasi!')
   }
 
   // =========================================================
@@ -573,9 +689,11 @@ function Tasks() {
         'Gagal membatalkan validasi:',
         error
       )
+
       setError(
         `Gagal membatalkan validasi: ${error.message}`
       )
+
       setValidatingTask(null)
       return
     }
@@ -600,122 +718,22 @@ function Tasks() {
   }
 
   // =========================================================
-  // CATEGORIES
+  // SUBTASK INPUT
   // =========================================================
 
-  const fetchCategories = async () => {
-    setLoadingCategories(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      setLoadingCategories(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('categories')
-      .select('id, name')
-      .eq('user_id', user.id)
-      .order('name', {
-        ascending: true,
-      })
-
-    if (error) {
-      console.error('Gagal mengambil kategori:', error)
-      setError(`Gagal mengambil kategori: ${error.message}`)
-    } else {
-      setCategories(data || [])
-    }
-
-    setLoadingCategories(false)
-  }
-
-  // =========================================================
-  // PROJECTS
-  // =========================================================
-
-  const fetchProjects = async () => {
-    setLoadingProjects(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      setLoadingProjects(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('projects')
-      .select(`
-        id,
-        name,
-        description
-      `)
-      .eq('created_by', user.id)
-      .order('name', {
-        ascending: true,
-      })
-
-    if (error) {
-      console.error('Gagal mengambil project:', error)
-      setError(`Gagal mengambil project: ${error.message}`)
-    } else {
-      setProjects(data || [])
-    }
-
-    setLoadingProjects(false)
-  }
-
-  // =========================================================
-  // SUBTASKS
-  // =========================================================
-
-  const fetchSubtasks = async () => {
-    setLoadingSubtasks(true)
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      setLoadingSubtasks(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('subtasks')
-      .select(`
-        *,
-        tasks!inner (
-          created_by
-        )
-      `)
-      .eq('tasks.created_by', user.id)
-      .order('created_at', {
-        ascending: true,
-      })
-
-    if (error) {
-      console.error('Gagal mengambil subtask:', error)
-      setError(`Gagal mengambil subtask: ${error.message}`)
-    } else {
-      setSubtasks(data || [])
-    }
-
-    setLoadingSubtasks(false)
-  }
-
-  const handleSubtaskInputChange = (taskId, value) => {
+  const handleSubtaskInputChange = (
+    taskId,
+    value
+  ) => {
     setSubtaskInputs((current) => ({
       ...current,
       [taskId]: value,
     }))
   }
+
+  // =========================================================
+  // ADD SUBTASK
+  // =========================================================
 
   const handleAddSubtask = async (taskId) => {
     const title = (
@@ -723,7 +741,9 @@ function Tasks() {
     ).trim()
 
     if (!title) {
-      setError('Nama subtask tidak boleh kosong.')
+      setError(
+        'Nama subtask tidak boleh kosong.'
+      )
       return
     }
 
@@ -741,8 +761,15 @@ function Tasks() {
       .single()
 
     if (error) {
-      console.error('Gagal menambahkan subtask:', error)
-      setError(`Gagal menambahkan subtask: ${error.message}`)
+      console.error(
+        'Gagal menambahkan subtask:',
+        error
+      )
+
+      setError(
+        `Gagal menambahkan subtask: ${error.message}`
+      )
+
       setAddingSubtask(null)
       return
     }
@@ -759,13 +786,22 @@ function Tasks() {
 
     setAddingSubtask(null)
 
-    showMessage('Subtask berhasil ditambahkan.')
+    showMessage(
+      'Subtask berhasil ditambahkan.'
+    )
   }
 
-  const handleSubtaskToggle = async (subtask) => {
+  // =========================================================
+  // TOGGLE SUBTASK
+  // =========================================================
+
+  const handleSubtaskToggle = async (
+    subtask
+  ) => {
     setError('')
 
-    const newCompleted = !subtask.is_completed
+    const newCompleted =
+      !subtask.is_completed
 
     const { error } = await supabase
       .from('subtasks')
@@ -775,8 +811,15 @@ function Tasks() {
       .eq('id', subtask.id)
 
     if (error) {
-      console.error('Gagal mengubah subtask:', error)
-      setError(`Gagal mengubah subtask: ${error.message}`)
+      console.error(
+        'Gagal mengubah subtask:',
+        error
+      )
+
+      setError(
+        `Gagal mengubah subtask: ${error.message}`
+      )
+
       return
     }
 
@@ -792,7 +835,13 @@ function Tasks() {
     )
   }
 
-  const handleDeleteSubtask = async (subtaskId) => {
+  // =========================================================
+  // DELETE SUBTASK
+  // =========================================================
+
+  const handleDeleteSubtask = async (
+    subtaskId
+  ) => {
     setError('')
 
     const { error } = await supabase
@@ -801,57 +850,207 @@ function Tasks() {
       .eq('id', subtaskId)
 
     if (error) {
-      console.error('Gagal menghapus subtask:', error)
-      setError(`Gagal menghapus subtask: ${error.message}`)
+      console.error(
+        'Gagal menghapus subtask:',
+        error
+      )
+
+      setError(
+        `Gagal menghapus subtask: ${error.message}`
+      )
+
       return
     }
 
     setSubtasks((current) =>
       current.filter(
-        (subtask) => subtask.id !== subtaskId
+        (subtask) =>
+          subtask.id !== subtaskId
       )
     )
 
-    showMessage('Subtask berhasil dihapus.')
+    showMessage(
+      'Subtask berhasil dihapus.'
+    )
   }
 
   // =========================================================
-  // FILTER
+  // FILTER + SEARCH + SORTING
   // =========================================================
 
   const filteredTasks = useMemo(() => {
-    let result = tasks
+    let result = [...tasks]
 
-    // FILTER KATEGORI
+    // -------------------------------------------------------
+    // SEARCH
+    // -------------------------------------------------------
+
+    const query =
+      searchQuery.trim().toLowerCase()
+
+    if (query) {
+      result = result.filter((task) => {
+        const title =
+          task.title?.toLowerCase() || ''
+
+        const description =
+          task.description?.toLowerCase() || ''
+
+        const categoryName =
+          task.categories?.name?.toLowerCase() || ''
+
+        const projectName =
+          task.projects?.name?.toLowerCase() || ''
+
+        return (
+          title.includes(query) ||
+          description.includes(query) ||
+          categoryName.includes(query) ||
+          projectName.includes(query)
+        )
+      })
+    }
+
+    // -------------------------------------------------------
+    // FILTER CATEGORY
+    // -------------------------------------------------------
+
     if (filterCategory === 'none') {
       result = result.filter(
         (task) => !task.category_id
       )
-    } else if (filterCategory !== 'all') {
+    } else if (
+      filterCategory !== 'all'
+    ) {
       result = result.filter(
         (task) =>
-          task.category_id === filterCategory
+          String(task.category_id) ===
+          String(filterCategory)
       )
     }
 
+    // -------------------------------------------------------
     // FILTER PROJECT
+    // -------------------------------------------------------
+
     if (filterProject === 'none') {
       result = result.filter(
         (task) => !task.project_id
       )
-    } else if (filterProject !== 'all') {
+    } else if (
+      filterProject !== 'all'
+    ) {
       result = result.filter(
         (task) =>
-          task.project_id === filterProject
+          String(task.project_id) ===
+          String(filterProject)
       )
     }
+
+    // -------------------------------------------------------
+    // SORTING
+    // -------------------------------------------------------
+
+    result.sort((a, b) => {
+      const createdA = a.created_at
+        ? new Date(a.created_at).getTime()
+        : 0
+
+      const createdB = b.created_at
+        ? new Date(b.created_at).getTime()
+        : 0
+
+      const deadlineA = a.deadline
+        ? new Date(a.deadline).getTime()
+        : null
+
+      const deadlineB = b.deadline
+        ? new Date(b.deadline).getTime()
+        : null
+
+      const priorityA =
+        PRIORITY_ORDER[a.priority] || 0
+
+      const priorityB =
+        PRIORITY_ORDER[b.priority] || 0
+
+      switch (sortBy) {
+        case 'created_asc':
+          return createdA - createdB
+
+        case 'deadline_asc':
+          if (
+            deadlineA === null &&
+            deadlineB === null
+          ) {
+            return 0
+          }
+
+          if (deadlineA === null) {
+            return 1
+          }
+
+          if (deadlineB === null) {
+            return -1
+          }
+
+          return deadlineA - deadlineB
+
+        case 'deadline_desc':
+          if (
+            deadlineA === null &&
+            deadlineB === null
+          ) {
+            return 0
+          }
+
+          if (deadlineA === null) {
+            return 1
+          }
+
+          if (deadlineB === null) {
+            return -1
+          }
+
+          return deadlineB - deadlineA
+
+        case 'priority_desc':
+          return priorityB - priorityA
+
+        case 'priority_asc':
+          return priorityA - priorityB
+
+        case 'created_desc':
+        default:
+          return createdB - createdA
+      }
+    })
 
     return result
   }, [
     tasks,
+    searchQuery,
     filterCategory,
     filterProject,
+    sortBy,
   ])
+
+  // =========================================================
+  // RESET FILTER
+  // =========================================================
+
+  const handleResetFilters = () => {
+    setSearchQuery('')
+    setFilterCategory('all')
+    setFilterProject('all')
+    setSortBy('created_desc')
+  }
+
+  const hasActiveFilters =
+    searchQuery.trim() !== '' ||
+    filterCategory !== 'all' ||
+    filterProject !== 'all' ||
+    sortBy !== 'created_desc'
 
   // =========================================================
   // HELPER SUBTASK
@@ -889,38 +1088,59 @@ function Tasks() {
   // HELPER PRIORITY
   // =========================================================
 
-  const getPriorityStyle = (priority) => {
+  const getPriorityStyle = (
+    priority
+  ) => {
     switch (priority) {
       case 'urgent':
-        return 'bg-red-500/10 text-red-400 border-red-500/20'
+        return 'border-red-500/20 bg-red-500/10 text-red-400'
 
       case 'high':
-        return 'bg-orange-500/10 text-orange-400 border-orange-500/20'
+        return 'border-orange-500/20 bg-orange-500/10 text-orange-400'
 
       case 'medium':
-        return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+        return 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400'
 
       case 'low':
-        return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+        return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
 
       default:
-        return 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+        return 'border-slate-500/20 bg-slate-500/10 text-slate-400'
     }
   }
 
-  const getPriorityLabel = (priority) => {
+  const getPriorityLabel = (
+    priority
+  ) => {
     const found =
       PRIORITY_OPTIONS.find(
         (item) =>
           item.value === priority
       )
 
-    return found?.label || priority
+    return (
+      found?.label ||
+      priority ||
+      'Sedang'
+    )
   }
 
   // =========================================================
   // HELPER STATUS
   // =========================================================
+
+  const getStatusStyle = (status) => {
+    switch (status) {
+      case 'completed':
+        return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+
+      case 'in_progress':
+        return 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'
+
+      default:
+        return 'border-slate-700 bg-slate-800 text-slate-300'
+    }
+  }
 
   const getStatusLabel = (status) => {
     const found =
@@ -929,7 +1149,11 @@ function Tasks() {
           item.value === status
       )
 
-    return found?.label || status
+    return (
+      found?.label ||
+      status ||
+      'Belum dikerjakan'
+    )
   }
 
   // =========================================================
@@ -943,6 +1167,10 @@ function Tasks() {
 
     const date = new Date(deadline)
 
+    if (Number.isNaN(date.getTime())) {
+      return 'Deadline tidak valid'
+    }
+
     return date.toLocaleString(
       'id-ID',
       {
@@ -954,6 +1182,10 @@ function Tasks() {
       }
     )
   }
+
+  // =========================================================
+  // CHECK DEADLINE
+  // =========================================================
 
   const isDeadlinePassed = (
     deadline,
@@ -972,18 +1204,51 @@ function Tasks() {
     )
   }
 
+  const isDeadlineSoon = (
+    deadline,
+    status
+  ) => {
+    if (
+      !deadline ||
+      status === 'completed'
+    ) {
+      return false
+    }
+
+    const deadlineTime =
+      new Date(deadline).getTime()
+
+    const now = Date.now()
+
+    const difference =
+      deadlineTime - now
+
+    return (
+      difference > 0 &&
+      difference <=
+        24 * 60 * 60 * 1000
+    )
+  }
+
   // =========================================================
   // FORMAT VALIDASI
   // =========================================================
 
-  const formatValidatedAt = (validatedAt) => {
+  const formatValidatedAt = (
+    validatedAt
+  ) => {
     if (!validatedAt) {
       return ''
     }
 
-    return new Date(
-      validatedAt
-    ).toLocaleString(
+    const date =
+      new Date(validatedAt)
+
+    if (Number.isNaN(date.getTime())) {
+      return ''
+    }
+
+    return date.toLocaleString(
       'id-ID',
       {
         day: '2-digit',
@@ -1001,9 +1266,9 @@ function Tasks() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
         <div className="text-center">
-          <div className="text-4xl mb-4 text-violet-400">
+          <div className="mb-4 text-5xl text-violet-400">
             ✦
           </div>
 
@@ -1021,18 +1286,36 @@ function Tasks() {
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
 
+        {/* ================================================= */}
         {/* HEADER */}
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        {/* ================================================= */}
 
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <div className="mb-3 flex items-center gap-2 text-sm">
+              <Link
+                to="/dashboard"
+                className="text-slate-500 transition hover:text-violet-400"
+              >
+                Dashboard
+              </Link>
+
+              <span className="text-slate-700">
+                /
+              </span>
+
+              <span className="text-violet-400">
+                Tugas
+              </span>
+            </div>
+
             <p className="mb-2 text-sm font-medium text-violet-400">
               TaskFlow
             </p>
 
-            <h1 className="text-3xl font-bold tracking-tight">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
               Tugas Saya
             </h1>
 
@@ -1044,14 +1327,16 @@ function Tasks() {
           <button
             type="button"
             onClick={handleOpenAddForm}
-            className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white transition hover:bg-violet-500"
+            className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white shadow-lg shadow-violet-900/20 transition hover:bg-violet-500"
           >
             + Tambah Tugas
           </button>
-
         </div>
 
+        {/* ================================================= */}
         {/* MESSAGE */}
+        {/* ================================================= */}
+
         {error && (
           <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
@@ -1064,235 +1349,379 @@ function Tasks() {
           </div>
         )}
 
-        {/* FILTER */}
-        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+        {/* ================================================= */}
+        {/* SEARCH / FILTER */}
+        {/* ================================================= */}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-
-            {/* CATEGORY FILTER */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-300">
-                Filter kategori
-              </label>
-
-              <select
-                value={filterCategory}
-                onChange={(event) =>
-                  setFilterCategory(
-                    event.target.value
-                  )
-                }
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500"
-              >
-                <option value="all">
-                  Semua kategori
-                </option>
-
-                <option value="none">
-                  Tanpa kategori
-                </option>
-
-                {categories.map(
-                  (category) => (
-                    <option
-                      key={category.id}
-                      value={category.id}
-                    >
-                      {category.name}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-            {/* PROJECT FILTER */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-300">
-                Filter project
-              </label>
-
-              <select
-                value={filterProject}
-                onChange={(event) =>
-                  setFilterProject(
-                    event.target.value
-                  )
-                }
-                disabled={loadingProjects}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500"
-              >
-                <option value="all">
-                  Semua project
-                </option>
-
-                <option value="none">
-                  Tanpa project
-                </option>
-
-                {projects.map(
-                  (project) => (
-                    <option
-                      key={project.id}
-                      value={project.id}
-                    >
-                      {project.name}
-                    </option>
-                  )
-                )}
-              </select>
-            </div>
-
-          </div>
-        </div>
-
-        {/* EMPTY */}
-        {filteredTasks.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 px-6 py-16 text-center">
-
-            <div className="mb-4 text-4xl">
-              ✓
-            </div>
-
-            <h2 className="text-xl font-semibold">
-              Belum ada tugas
+        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-xl shadow-black/10">
+          <div className="mb-4 flex flex-col gap-1">
+            <h2 className="font-semibold text-white">
+              Cari & Filter Tugas
             </h2>
 
-            <p className="mt-2 text-slate-400">
-              Tambahkan tugas pertama kamu untuk mulai
-              menggunakan TaskFlow.
+            <p className="text-xs text-slate-500">
+              Temukan tugas dengan cepat berdasarkan kata kunci,
+              kategori, project, atau urutan tertentu.
             </p>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_auto]">
+
+            {/* SEARCH */}
+
+            <div className="relative">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+                🔎
+              </span>
+
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(event) =>
+                  setSearchQuery(
+                    event.target.value
+                  )
+                }
+                placeholder="Cari tugas, deskripsi, kategori, atau project..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/10"
+              />
+            </div>
+
+            {/* CATEGORY */}
+
+            <select
+              value={filterCategory}
+              onChange={(event) =>
+                setFilterCategory(
+                  event.target.value
+                )
+              }
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-violet-500"
+            >
+              <option value="all">
+                Semua kategori
+              </option>
+
+              <option value="none">
+                Tanpa kategori
+              </option>
+
+              {categories.map(
+                (category) => (
+                  <option
+                    key={category.id}
+                    value={category.id}
+                  >
+                    {category.name}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* PROJECT */}
+
+            <select
+              value={filterProject}
+              onChange={(event) =>
+                setFilterProject(
+                  event.target.value
+                )
+              }
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-violet-500"
+            >
+              <option value="all">
+                Semua project
+              </option>
+
+              <option value="none">
+                Tanpa project
+              </option>
+
+              {projects.map(
+                (project) => (
+                  <option
+                    key={project.id}
+                    value={project.id}
+                  >
+                    {project.name}
+                  </option>
+                )
+              )}
+            </select>
+
+            {/* SORT */}
+
+            <select
+              value={sortBy}
+              onChange={(event) =>
+                setSortBy(
+                  event.target.value
+                )
+              }
+              className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-violet-500"
+            >
+              <option value="created_desc">
+                Terbaru dibuat
+              </option>
+
+              <option value="created_asc">
+                Terlama dibuat
+              </option>
+
+              <option value="deadline_asc">
+                Deadline terdekat
+              </option>
+
+              <option value="deadline_desc">
+                Deadline terjauh
+              </option>
+
+              <option value="priority_desc">
+                Prioritas tertinggi
+              </option>
+
+              <option value="priority_asc">
+                Prioritas terendah
+              </option>
+            </select>
+
+            {/* RESET */}
 
             <button
               type="button"
-              onClick={handleOpenAddForm}
-              className="mt-6 rounded-xl bg-violet-600 px-5 py-3 font-semibold transition hover:bg-violet-500"
+              onClick={handleResetFilters}
+              disabled={!hasActiveFilters}
+              className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-medium text-slate-300 transition hover:border-violet-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              + Tambah Tugas
+              Reset
             </button>
+          </div>
 
+          {/* RESULT INFO */}
+
+          <div className="mt-4 flex flex-col gap-2 border-t border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              Menampilkan{' '}
+              <span className="font-semibold text-slate-300">
+                {filteredTasks.length}
+              </span>{' '}
+              dari{' '}
+              <span className="font-semibold text-slate-300">
+                {tasks.length}
+              </span>{' '}
+              tugas
+            </p>
+
+            {hasActiveFilters && (
+              <span className="text-xs text-violet-400">
+                Filter sedang aktif
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ================================================= */}
+        {/* EMPTY STATE */}
+        {/* ================================================= */}
+
+        {filteredTasks.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-16 text-center">
+            <div className="mb-4 text-5xl">
+              {tasks.length === 0 ? '📝' : '🔎'}
+            </div>
+
+            <h2 className="text-xl font-semibold text-white">
+              {tasks.length === 0
+                ? 'Belum ada tugas'
+                : 'Tugas tidak ditemukan'}
+            </h2>
+
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+              {tasks.length === 0
+                ? 'Mulai tambahkan tugas pertamamu agar semua aktivitas bisa dikelola di satu tempat.'
+                : 'Coba ubah kata pencarian atau filter yang kamu gunakan.'}
+            </p>
+
+            {tasks.length === 0 ? (
+              <button
+                type="button"
+                onClick={handleOpenAddForm}
+                className="mt-6 rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white transition hover:bg-violet-500"
+              >
+                + Tambah Tugas Pertama
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="mt-6 rounded-xl border border-slate-700 px-5 py-3 font-semibold text-slate-300 transition hover:border-violet-500 hover:text-white"
+              >
+                Reset Filter
+              </button>
+            )}
           </div>
         )}
 
+        {/* ================================================= */}
         {/* TASK LIST */}
+        {/* ================================================= */}
+
         <div className="space-y-5">
-
           {filteredTasks.map((task) => {
-
             const taskSubtasks =
               getTaskSubtasks(task.id)
 
             const progress =
               getProgress(task.id)
 
-            const completedSubtasks =
-              taskSubtasks.filter(
-                (subtask) =>
-                  subtask.is_completed
-              ).length
+            const overdue =
+              isDeadlinePassed(
+                task.deadline,
+                task.status
+              )
+
+            const deadlineSoon =
+              isDeadlineSoon(
+                task.deadline,
+                task.status
+              )
 
             const isValidated =
               Boolean(task.validated_at)
 
             return (
-              <article
+              <div
                 key={task.id}
-                className={`overflow-hidden rounded-2xl border bg-slate-900/70 ${
-                  isValidated
-                    ? 'border-emerald-500/30'
-                    : 'border-slate-800'
-                }`}
+                className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl shadow-black/10 transition hover:border-slate-700"
               >
 
-                {/* TASK CONTENT */}
-                <div className="p-5 sm:p-6">
+                {/* TASK HEADER */}
 
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="p-5 sm:p-6">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
 
                     <div className="min-w-0 flex-1">
 
-                      {/* TITLE */}
-                      <div className="flex flex-wrap items-center gap-2">
+                      {/* BADGES */}
 
-                        <h2 className="text-xl font-bold text-white">
-                          {task.title}
-                        </h2>
-
-                        {/* CATEGORY */}
-                        {task.categories?.name && (
-                          <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-300">
-                            🏷️ {task.categories.name}
-                          </span>
-                        )}
-
-                        {/* PROJECT */}
-                        {task.projects?.name && (
-                          <Link
-                            to={`/projects/${task.projects.id}`}
-                            className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-300 transition hover:bg-blue-500/20 hover:text-blue-200"
-                          >
-                            📁 {task.projects.name}
-                          </Link>
-                        )}
-
-                        {/* PRIORITY */}
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
                         <span
-                          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${getPriorityStyle(
-                            task.priority
-                          )}`}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getPriorityStyle(task.priority)}`}
                         >
                           {getPriorityLabel(
                             task.priority
                           )}
                         </span>
 
-                      </div>
-
-                      {/* DESCRIPTION */}
-                      {task.description && (
-                        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-400">
-                          {task.description}
-                        </p>
-                      )}
-
-                      {/* INFO */}
-                      <div className="mt-4 flex flex-wrap gap-3 text-sm">
-
                         <span
-                          className={`rounded-lg bg-slate-950 px-3 py-2 ${
-                            isDeadlinePassed(
-                              task.deadline,
-                              task.status
-                            )
-                              ? 'text-red-400'
-                              : 'text-slate-400'
-                          }`}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusStyle(task.status)}`}
                         >
-                          🕒 {formatDeadline(
-                            task.deadline
-                          )}
-                        </span>
-
-                        <span className="rounded-lg bg-slate-950 px-3 py-2 text-slate-400">
-                          📌 {getStatusLabel(
+                          {getStatusLabel(
                             task.status
                           )}
                         </span>
 
+                        {isValidated && (
+                          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+                            ✓ Tervalidasi
+                          </span>
+                        )}
+
+                        {overdue && (
+                          <span className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">
+                            ⚠ Terlambat
+                          </span>
+                        )}
+
+                        {!overdue &&
+                          deadlineSoon && (
+                            <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-400">
+                              ⏰ Deadline &lt; 24 jam
+                            </span>
+                          )}
                       </div>
 
+                      {/* TITLE */}
+
+                      <h2 className="break-words text-xl font-bold text-white sm:text-2xl">
+                        {task.title}
+                      </h2>
+
+                      {/* DESCRIPTION */}
+
+                      {task.description && (
+                        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-400">
+                          {task.description}
+                        </p>
+                      )}
+
+                      {/* META */}
+
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+
+                        {/* DEADLINE */}
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                          <p className="text-xs font-medium text-slate-600">
+                            Deadline
+                          </p>
+
+                          <p
+                            className={`mt-1 text-sm font-medium ${
+                              overdue
+                                ? 'text-red-400'
+                                : deadlineSoon
+                                  ? 'text-orange-400'
+                                  : 'text-slate-300'
+                            }`}
+                          >
+                            {task.deadline
+                              ? formatDeadline(
+                                  task.deadline
+                                )
+                              : 'Tanpa deadline'}
+                          </p>
+                        </div>
+
+                        {/* CATEGORY */}
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                          <p className="text-xs font-medium text-slate-600">
+                            Kategori
+                          </p>
+
+                          <p className="mt-1 text-sm font-medium text-slate-300">
+                            {task.categories?.name ||
+                              'Tanpa kategori'}
+                          </p>
+                        </div>
+
+                        {/* PROJECT */}
+
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                          <p className="text-xs font-medium text-slate-600">
+                            Project
+                          </p>
+
+                          <p className="mt-1 text-sm font-medium text-slate-300">
+                            {task.projects?.name ||
+                              'Tanpa project'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     {/* ACTIONS */}
-                    <div className="flex shrink-0 gap-2">
 
+                    <div className="flex shrink-0 flex-wrap gap-2 lg:w-48 lg:flex-col">
                       <button
                         type="button"
                         onClick={() =>
                           handleOpenEditForm(task)
                         }
-                        className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-violet-500 hover:text-white"
+                        className="flex-1 rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-violet-500 hover:text-white lg:flex-none"
                       >
-                        Edit
+                        ✏️ Edit
                       </button>
 
                       <button
@@ -1302,195 +1731,190 @@ function Tasks() {
                             task.id
                           )
                         }
-                        className="rounded-lg border border-red-500/20 px-3 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
+                        className="flex-1 rounded-xl border border-red-500/20 px-4 py-2.5 text-sm font-semibold text-red-400 transition hover:bg-red-500/10 lg:flex-none"
                       >
-                        Hapus
+                        🗑️ Hapus
                       </button>
-
                     </div>
-
                   </div>
 
-                  {/* STATUS */}
-                  <div className="mt-5">
+                  {/* STATUS CONTROL */}
 
-                    <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Status
-                    </label>
+                  <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-300">
+                          Status tugas
+                        </p>
 
-                    <select
-                      value={task.status}
-                      onChange={(event) =>
-                        handleStatusChange(
-                          task,
-                          event.target.value
-                        )
-                      }
-                      className="w-full max-w-xs rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500"
-                    >
-                      {STATUS_OPTIONS.map(
-                        (status) => (
-                          <option
-                            key={status.value}
-                            value={status.value}
+                        <p className="mt-1 text-xs text-slate-600">
+                          Ubah status sesuai progres pekerjaan.
+                        </p>
+                      </div>
+
+                      <select
+                        value={
+                          task.status || 'todo'
+                        }
+                        onChange={(event) =>
+                          handleStatusChange(
+                            task,
+                            event.target.value
+                          )
+                        }
+                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-white outline-none focus:border-violet-500"
+                      >
+                        {STATUS_OPTIONS.map(
+                          (status) => (
+                            <option
+                              key={status.value}
+                              value={
+                                status.value
+                              }
+                            >
+                              {status.label}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* VALIDATION */}
+
+                  {task.status ===
+                    'completed' && (
+                    <div className="mt-4 rounded-xl border border-emerald-500/10 bg-emerald-500/5 p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-emerald-300">
+                            {isValidated
+                              ? '✓ Tugas sudah tervalidasi'
+                              : 'Tugas selesai dan menunggu validasi'}
+                          </p>
+
+                          {isValidated && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Divalidasi pada{' '}
+                              {formatValidatedAt(
+                                task.validated_at
+                              )}
+                            </p>
+                          )}
+                        </div>
+
+                        {isValidated ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUnvalidateTask(
+                                task
+                              )
+                            }
+                            disabled={
+                              validatingTask ===
+                              task.id
+                            }
+                            className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 transition hover:border-orange-500 hover:text-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {status.label}
-                          </option>
-                        )
-                      )}
-                    </select>
-
-                  </div>
-
-                  {/* VALIDASI TUGAS */}
-                  {task.status === 'completed' && (
-                    <div className="mt-5">
-
-                      {isValidated ? (
-                        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
-                                  ✓
-                                </span>
-
-                                <div>
-                                  <p className="text-sm font-semibold text-emerald-300">
-                                    Tugas Tervalidasi
-                                  </p>
-
-                                  <p className="text-xs text-slate-500">
-                                    Divalidasi pada{' '}
-                                    {formatValidatedAt(
-                                      task.validated_at
-                                    )}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleUnvalidateTask(
-                                  task
-                                )
-                              }
-                              disabled={
-                                validatingTask ===
-                                task.id
-                              }
-                              className="rounded-lg border border-emerald-500/20 px-3 py-2 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {validatingTask ===
+                            {validatingTask ===
+                            task.id
+                              ? 'Memproses...'
+                              : 'Batalkan Validasi'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleValidateTask(
+                                task
+                              )
+                            }
+                            disabled={
+                              validatingTask ===
                               task.id
-                                ? 'Memproses...'
-                                : 'Batalkan Validasi'}
-                            </button>
-
-                          </div>
-
-                        </div>
-                      ) : (
-                        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-4">
-
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-                            <div className="flex items-center gap-3">
-
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-yellow-500/20 text-yellow-400">
-                                !
-                              </span>
-
-                              <div>
-                                <p className="text-sm font-semibold text-yellow-300">
-                                  Menunggu Validasi
-                                </p>
-
-                                <p className="text-xs text-slate-500">
-                                  Tugas sudah selesai dan perlu
-                                  divalidasi oleh kamu.
-                                </p>
-                              </div>
-
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleValidateTask(
-                                  task
-                                )
-                              }
-                              disabled={
-                                validatingTask ===
-                                task.id
-                              }
-                              className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {validatingTask ===
-                              task.id
-                                ? 'Memvalidasi...'
-                                : '✓ Validasi Tugas'}
-                            </button>
-
-                          </div>
-
-                        </div>
-                      )}
-
+                            }
+                            className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {validatingTask ===
+                            task.id
+                              ? 'Memproses...'
+                              : '✓ Validasi Tugas'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
                   {/* SUBTASK */}
-                  <div className="mt-6 border-t border-slate-800 pt-5">
 
-                    <div className="mb-2 flex items-center justify-between">
-
+                  <div className="mt-6 border-t border-slate-800 pt-6">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h3 className="font-semibold text-white">
                           Subtask
                         </h3>
 
-                        <p className="text-xs text-slate-500">
-                          {completedSubtasks} dari{' '}
-                          {taskSubtasks.length}{' '}
-                          selesai
+                        <p className="mt-1 text-xs text-slate-600">
+                          Pecah tugas menjadi langkah-langkah kecil.
                         </p>
                       </div>
 
-                      <span className="text-sm font-semibold text-violet-400">
-                        {progress}%
-                      </span>
-
+                      {taskSubtasks.length >
+                        0 && (
+                        <span className="text-sm text-slate-500">
+                          {
+                            taskSubtasks.filter(
+                              (item) =>
+                                item.is_completed
+                            ).length
+                          }{' '}
+                          /{' '}
+                          {
+                            taskSubtasks.length
+                          }{' '}
+                          selesai
+                        </span>
+                      )}
                     </div>
 
                     {/* PROGRESS */}
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-800">
 
-                      <div
-                        className="h-full rounded-full bg-violet-500 transition-all duration-300"
-                        style={{
-                          width: `${progress}%`,
-                        }}
-                      />
+                    {taskSubtasks.length >
+                      0 && (
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between text-xs">
+                          <span className="text-slate-500">
+                            Progress subtask
+                          </span>
 
-                    </div>
+                          <span className="font-semibold text-violet-400">
+                            {progress}%
+                          </span>
+                        </div>
+
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                          <div
+                            className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                            style={{
+                              width: `${progress}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* SUBTASK LIST */}
-                    <div className="mt-4 space-y-2">
 
+                    <div className="mt-4 space-y-2">
                       {taskSubtasks.map(
                         (subtask) => (
                           <div
-                            key={subtask.id}
-                            className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3"
+                            key={
+                              subtask.id
+                            }
+                            className="group flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/50 px-3 py-3"
                           >
-
-                            {/* CHECKBOX */}
                             <button
                               type="button"
                               onClick={() =>
@@ -1498,32 +1922,30 @@ function Tasks() {
                                   subtask
                                 )
                               }
-                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs transition ${
+                              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-xs transition ${
                                 subtask.is_completed
                                   ? 'border-emerald-500 bg-emerald-500 text-white'
-                                  : 'border-slate-600 text-transparent hover:border-violet-500'
+                                  : 'border-slate-600 bg-slate-900 text-transparent hover:border-violet-500'
                               }`}
                               aria-label={
                                 subtask.is_completed
-                                  ? 'Batalkan selesai'
-                                  : 'Tandai selesai'
+                                  ? 'Batalkan subtask'
+                                  : 'Selesaikan subtask'
                               }
                             >
                               ✓
                             </button>
 
-                            {/* TITLE */}
                             <span
-                              className={`min-w-0 flex-1 text-sm ${
+                              className={`min-w-0 flex-1 break-words text-sm ${
                                 subtask.is_completed
-                                  ? 'text-slate-500 line-through'
+                                  ? 'text-slate-600 line-through'
                                   : 'text-slate-300'
                               }`}
                             >
                               {subtask.title}
                             </span>
 
-                            {/* DELETE */}
                             <button
                               type="button"
                               onClick={() =>
@@ -1531,20 +1953,26 @@ function Tasks() {
                                   subtask.id
                                 )
                               }
-                              className="text-xs text-slate-600 transition hover:text-red-400"
+                              className="rounded-lg px-2 py-1 text-xs text-slate-600 opacity-100 transition hover:bg-red-500/10 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100"
+                              aria-label="Hapus subtask"
                             >
-                              Hapus
+                              🗑️
                             </button>
-
                           </div>
                         )
                       )}
 
+                      {taskSubtasks.length ===
+                        0 && (
+                        <div className="rounded-xl border border-dashed border-slate-800 px-4 py-5 text-center text-sm text-slate-600">
+                          Belum ada subtask.
+                        </div>
+                      )}
                     </div>
 
                     {/* ADD SUBTASK */}
-                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
 
+                    <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                       <input
                         type="text"
                         value={
@@ -1560,14 +1988,17 @@ function Tasks() {
                         }
                         onKeyDown={(event) => {
                           if (
-                            event.key === 'Enter'
+                            event.key ===
+                            'Enter'
                           ) {
+                            event.preventDefault()
+
                             handleAddSubtask(
                               task.id
                             )
                           }
                         }}
-                        placeholder="Tambah subtask..."
+                        placeholder="Tambahkan subtask..."
                         className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-500"
                       />
 
@@ -1582,237 +2013,163 @@ function Tasks() {
                           addingSubtask ===
                           task.id
                         }
-                        className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-xl bg-slate-800 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-violet-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {addingSubtask ===
                         task.id
                           ? 'Menambahkan...'
                           : '+ Subtask'}
                       </button>
-
                     </div>
-
                   </div>
-
                 </div>
-
-              </article>
+              </div>
             )
           })}
-
         </div>
       </div>
 
-      {/* =====================================================
-          MODAL FORM
-      ===================================================== */}
+      {/* =================================================== */}
+      {/* ADD / EDIT MODAL */}
+      {/* =================================================== */}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              handleCloseForm()
+            }
+          }}
+        >
+          <div className="my-8 w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
 
             {/* MODAL HEADER */}
-            <div className="sticky top-0 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-5 py-4">
 
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4 sm:px-6">
               <div>
-                <h2 className="text-lg font-bold">
+                <p className="text-xs font-medium text-violet-400">
+                  TaskFlow
+                </p>
+
+                <h2 className="mt-1 text-xl font-bold text-white">
                   {editingTask
                     ? 'Edit Tugas'
                     : 'Tambah Tugas'}
                 </h2>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  Isi informasi tugas kamu.
-                </p>
               </div>
 
               <button
                 type="button"
                 onClick={handleCloseForm}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
+                className="rounded-xl px-3 py-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                aria-label="Tutup"
               >
                 ✕
               </button>
-
             </div>
 
-            {/* FORM */}
+            {/* MODAL BODY */}
+
             <form
               onSubmit={handleSaveTask}
-              className="space-y-5 p-5"
+              className="p-5 sm:p-6"
             >
+              <div className="space-y-5">
 
-              {/* TITLE */}
-              <div>
+                {/* TITLE */}
 
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Judul tugas
-                </label>
-
-                <input
-                  type="text"
-                  name="title"
-                  value={form.title}
-                  onChange={handleFormChange}
-                  placeholder="Contoh: Kerjakan tugas basis data"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-500"
-                  autoFocus
-                />
-
-              </div>
-
-              {/* DESCRIPTION */}
-              <div>
-
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Deskripsi
-                </label>
-
-                <textarea
-                  name="description"
-                  value={form.description}
-                  onChange={handleFormChange}
-                  rows="4"
-                  placeholder="Tambahkan deskripsi tugas..."
-                  className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-500"
-                />
-
-              </div>
-
-              {/* CATEGORY + PROJECT */}
-              <div className="grid gap-5 sm:grid-cols-2">
-
-                {/* CATEGORY */}
                 <div>
-
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Kategori
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
+                    Judul tugas
+                    <span className="text-red-400">
+                      {' '}
+                      *
+                    </span>
                   </label>
 
-                  <select
-                    name="category_id"
-                    value={form.category_id}
+                  <input
+                    type="text"
+                    name="title"
+                    value={form.title}
                     onChange={handleFormChange}
-                    disabled={loadingCategories}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
-                  >
-
-                    <option value="">
-                      Tanpa kategori
-                    </option>
-
-                    {categories.map(
-                      (category) => (
-                        <option
-                          key={category.id}
-                          value={category.id}
-                        >
-                          {category.name}
-                        </option>
-                      )
-                    )}
-
-                  </select>
-
+                    placeholder="Contoh: Mengerjakan laporan kuliah"
+                    autoFocus
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/10"
+                  />
                 </div>
 
-                {/* PROJECT */}
-                <div>
+                {/* DESCRIPTION */}
 
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Project
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
+                    Deskripsi
                   </label>
 
-                  <select
-                    name="project_id"
-                    value={form.project_id}
+                  <textarea
+                    name="description"
+                    value={form.description}
                     onChange={handleFormChange}
-                    disabled={loadingProjects}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
-                  >
-
-                    <option value="">
-                      Tanpa project
-                    </option>
-
-                    {projects.map(
-                      (project) => (
-                        <option
-                          key={project.id}
-                          value={project.id}
-                        >
-                          {project.name}
-                        </option>
-                      )
-                    )}
-
-                  </select>
-
-                  {projects.length === 0 &&
-                    !loadingProjects && (
-                      <p className="mt-2 text-xs text-slate-600">
-                        Belum ada project.
-                      </p>
-                    )}
-
+                    rows={4}
+                    placeholder="Tambahkan detail tugas..."
+                    className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/10"
+                  />
                 </div>
 
-              </div>
+                {/* DEADLINE + PRIORITY */}
 
-              {/* DEADLINE */}
-              <div>
+                <div className="grid gap-5 sm:grid-cols-2">
 
-                <label className="mb-2 block text-sm font-medium text-slate-300">
-                  Deadline
-                </label>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-300">
+                      Deadline
+                    </label>
 
-                <input
-                  type="datetime-local"
-                  name="deadline"
-                  value={form.deadline}
-                  onChange={handleFormChange}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
-                />
+                    <input
+                      type="datetime-local"
+                      name="deadline"
+                      value={form.deadline}
+                      onChange={handleFormChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
+                    />
+                  </div>
 
-              </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-300">
+                      Prioritas
+                    </label>
 
-              {/* PRIORITY + STATUS */}
-              <div className="grid gap-5 sm:grid-cols-2">
-
-                {/* PRIORITY */}
-                <div>
-
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
-                    Prioritas
-                  </label>
-
-                  <select
-                    name="priority"
-                    value={form.priority}
-                    onChange={handleFormChange}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
-                  >
-
-                    {PRIORITY_OPTIONS.map(
-                      (priority) => (
-                        <option
-                          key={priority.value}
-                          value={priority.value}
-                        >
-                          {priority.label}
-                        </option>
-                      )
-                    )}
-
-                  </select>
-
+                    <select
+                      name="priority"
+                      value={form.priority}
+                      onChange={handleFormChange}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
+                    >
+                      {PRIORITY_OPTIONS.map(
+                        (priority) => (
+                          <option
+                            key={
+                              priority.value
+                            }
+                            value={
+                              priority.value
+                            }
+                          >
+                            {priority.label}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </div>
                 </div>
 
                 {/* STATUS */}
-                <div>
 
-                  <label className="mb-2 block text-sm font-medium text-slate-300">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-300">
                     Status
                   </label>
 
@@ -1822,7 +2179,6 @@ function Tasks() {
                     onChange={handleFormChange}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
                   >
-
                     {STATUS_OPTIONS.map(
                       (status) => (
                         <option
@@ -1833,20 +2189,101 @@ function Tasks() {
                         </option>
                       )
                     )}
-
                   </select>
 
+                  {form.status ===
+                    'completed' && (
+                    <p className="mt-2 text-xs text-yellow-500">
+                      Tugas berstatus selesai tetap
+                      perlu divalidasi agar menjadi
+                      tervalidasi.
+                    </p>
+                  )}
                 </div>
 
+                {/* CATEGORY + PROJECT */}
+
+                <div className="grid gap-5 sm:grid-cols-2">
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-300">
+                      Kategori
+                    </label>
+
+                    <select
+                      name="category_id"
+                      value={
+                        form.category_id
+                      }
+                      onChange={
+                        handleFormChange
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
+                    >
+                      <option value="">
+                        Tanpa kategori
+                      </option>
+
+                      {categories.map(
+                        (category) => (
+                          <option
+                            key={
+                              category.id
+                            }
+                            value={
+                              category.id
+                            }
+                          >
+                            {category.name}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-300">
+                      Project
+                    </label>
+
+                    <select
+                      name="project_id"
+                      value={
+                        form.project_id
+                      }
+                      onChange={
+                        handleFormChange
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-violet-500"
+                    >
+                      <option value="">
+                        Tanpa project
+                      </option>
+
+                      {projects.map(
+                        (project) => (
+                          <option
+                            key={project.id}
+                            value={
+                              project.id
+                            }
+                          >
+                            {project.name}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              {/* BUTTON */}
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:justify-end">
+              {/* MODAL FOOTER */}
 
+              <div className="mt-7 flex flex-col-reverse gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={handleCloseForm}
-                  className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-800"
+                  className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
                 >
                   Batal
                 </button>
@@ -1859,15 +2296,11 @@ function Tasks() {
                     ? 'Simpan Perubahan'
                     : 'Tambah Tugas'}
                 </button>
-
               </div>
-
             </form>
-
           </div>
         </div>
       )}
-
     </main>
   )
 }
